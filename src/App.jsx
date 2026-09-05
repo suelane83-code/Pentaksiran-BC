@@ -5,19 +5,29 @@ import {
 import { 
   UserCircle, Lock, LogOut, Plus, Trash2, Edit3, Save, X, Search, ChevronRight, BookOpen, Users, BarChart2, CheckCircle, AlertCircle, Leaf, Sprout, ClipboardList
 } from 'lucide-react';
-import { initializeApp } from 'firebase/app';
+
+// ==========================================
+// FIREBASE 配置 (已为您完美集成)
+// ==========================================
+import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
 
-// ==========================================
-// FIREBASE 配置 (请保留你自己的配置)
-// ==========================================
 const firebaseConfig = {
-    // 你的 Firebase Config
+  apiKey: "AIzaSyCBTuwRcUXt3OuqrpIVD8Kr6Mk7YvlnizE",
+  authDomain: "bc-pentaksiran.firebaseapp.com",
+  projectId: "bc-pentaksiran",
+  storageBucket: "bc-pentaksiran.firebasestorage.app",
+  messagingSenderId: "738832841028",
+  appId: "1:738832841028:web:e7ad08371899cc05257f11",
+  measurementId: "G-VLVL1M364V"
 };
-const app = Object.keys(firebaseConfig).length > 0 ? initializeApp(firebaseConfig) : null;
-const auth = app ? getAuth(app) : null;
-const db = app ? getFirestore(app) : null;
+
+const app = initializeApp(firebaseConfig);
+const analytics = typeof window !== 'undefined' ? getAnalytics(app) : null;
+const auth = getAuth(app);
+const db = getFirestore(app);
 const appId = 'my-mock-exam-system';
 
 // ==========================================
@@ -71,16 +81,17 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // 修复权限报错：将 Firestore 监听器用 if (!fbUser) return 守卫，确保在匿名登录完成后才执行
   useEffect(() => {
     if (!fbUser || !db) return;
-    const unsubScores = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'scores'), (snap) => setScores(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
-    const unsubStudents = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'students'), (snap) => setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
-    const unsubExams = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'exams'), (snap) => setExams(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
+    const unsubScores = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'scores'), (snap) => setScores(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))), (err) => console.error("Scores error:", err));
+    const unsubStudents = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'students'), (snap) => setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))), (err) => console.error("Students error:", err));
+    const unsubExams = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'exams'), (snap) => setExams(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))), (err) => console.error("Exams error:", err));
     const unsubLogs = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'logs'), (snap) => {
       const logsData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       logsData.sort((a, b) => new Date(b.time) - new Date(a.time));
       setLogs(logsData);
-    });
+    }, (err) => console.error("Logs error:", err));
     return () => { unsubScores(); unsubStudents(); unsubExams(); unsubLogs(); };
   }, [fbUser]);
 
@@ -129,8 +140,6 @@ export default function App() {
   const handleDeleteExam = async (id) => { if(window.confirm('确定删除吗？')) if (db && fbUser) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'exams', id)); };
 
   // --- 成绩录入核心逻辑 (表格批量) ---
-  
-  // 监听班级和考试的选择，提取旧成绩填入表格草稿中
   useEffect(() => {
     if (entryClass && entryExamId) {
       const currentStudents = students.filter(s => s.class === entryClass);
@@ -142,16 +151,15 @@ export default function App() {
           partB: existing ? existing.partB : '',
           partC: existing ? existing.partC : '',
           partD: existing ? existing.partD : '',
-          docId: existing ? existing.id : `${s.id}_${entryExamId}` // 使用组合ID防止重复
+          docId: existing ? existing.id : `${s.id}_${entryExamId}`
         };
       });
       setDraftScores(newDrafts);
     } else {
       setDraftScores({});
     }
-  }, [entryClass, entryExamId, students, scores]); // 实时同步数据库
+  }, [entryClass, entryExamId, students, scores]);
 
-  // 记录表格内每次按键输入
   const handleScoreChange = (studentId, field, value) => {
     setDraftScores(prev => ({
       ...prev,
@@ -162,13 +170,11 @@ export default function App() {
     }));
   };
 
-  // 一键保存全班
   const handleSaveBatchScores = async () => {
     const batch = (db && fbUser) ? writeBatch(db) : null;
     let savedCount = 0;
 
     for (const [studentId, draft] of Object.entries(draftScores)) {
-      // 只有填写了分数的才保存
       if (draft.partA !== '' || draft.partB !== '' || draft.partC !== '' || draft.partD !== '') {
         const scoreData = {
           studentId,
@@ -191,7 +197,6 @@ export default function App() {
     }
   };
 
-  // 辅助计算
   const calculateResult = (partA = 0, partB = 0, partC = 0, partD = 0) => {
     const sum = Number(partA) + Number(partB) + Number(partC) + Number(partD);
     const total = sum * 2;
@@ -218,28 +223,7 @@ export default function App() {
     });
   };
 
-  const getPartAnalysisData = (examId, className) => {
-     const classStudents = className === '全部' ? students : students.filter(s => s.class === className);
-     const studentIds = classStudents.map(s => s.id);
-     const relevantScores = scores.filter(s => s.examId === examId && studentIds.includes(s.studentId));
-     const isPass = (score, max) => score >= (max * 0.4);
-     const analysis = [
-       { name: '部分 A (满分 10)', 达标: 0, 未达标: 0 },
-       { name: '部分 B (满分 15)', 达标: 0, 未达标: 0 },
-       { name: '部分 C (满分 10)', 达标: 0, 未达标: 0 },
-       { name: '部分 D (满分 15)', 达标: 0, 未达标: 0 }
-     ];
-     relevantScores.forEach(score => {
-        isPass(score.partA, 10) ? analysis[0].达标++ : analysis[0].未达标++;
-        isPass(score.partB, 15) ? analysis[1].达标++ : analysis[1].未达标++;
-        isPass(score.partC, 10) ? analysis[2].达标++ : analysis[2].未达标++;
-        isPass(score.partD, 15) ? analysis[3].达标++ : analysis[3].未达标++;
-     });
-     return analysis;
-  };
-
   if (!user) {
-    // 登录界面 (缩略)
     return (
       <div className="min-h-screen bg-[#f4f1ea] flex items-center justify-center p-4 font-sans relative overflow-hidden">
         <Leaf className="absolute top-10 left-10 w-32 h-32 text-emerald-600/10 -rotate-45" />
@@ -272,7 +256,6 @@ export default function App() {
   }
 
   const classes = [...new Set(students.map(s => s.class))];
-  const isAdmin = user === 'Admin';
 
   return (
     <div className="min-h-screen bg-[#f4f1ea] font-sans flex text-stone-800">
@@ -378,7 +361,7 @@ export default function App() {
                 <div className="flex justify-between items-end border-b-2 border-emerald-500 pb-2">
                   <h2 className="text-2xl font-bold text-stone-800">第二步: 智能录入表格</h2>
                   {entryClass && entryExamId && (
-                    <button onClick={handleSaveBatchScores} className="bg-emerald-600 text-white px-5 py-2.5 rounded-xl font-bold flex items-center shadow-md hover:bg-emerald-700 transition-colors transform hover:-translate-y-0.5">
+                    <button onClick={handleSaveBatchScores} className="bg-emerald-600 text-white px-5 py-2.5 rounded-xl font-bold flex items-center shadow-md hover:bg-emerald-700 transition-colors">
                       <Save className="w-4 h-4 mr-2" /> 一键保存全班成绩
                     </button>
                   )}
@@ -388,24 +371,18 @@ export default function App() {
                   <div className="p-6 bg-stone-50 border-b border-stone-200 flex flex-wrap gap-4 items-center">
                     <div>
                       <label className="block text-xs font-bold text-stone-500 uppercase mb-1">1. 选择班级</label>
-                      <select value={entryClass} onChange={e => setEntryClass(e.target.value)} className="w-48 px-3 py-2 border border-stone-300 rounded-xl text-sm bg-white font-medium focus:ring-2 focus:ring-emerald-500">
+                      <select value={entryClass} onChange={e => setEntryClass(e.target.value)} className="w-48 px-3 py-2 border border-stone-300 rounded-xl text-sm bg-white font-medium">
                         <option value="">请选择班级...</option>
                         {classes.map(c => <option key={c} value={c}>{c}</option>)}
                       </select>
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-stone-500 uppercase mb-1">2. 选择考试</label>
-                      <select value={entryExamId} onChange={e => setEntryExamId(e.target.value)} className="w-56 px-3 py-2 border border-stone-300 rounded-xl text-sm bg-white font-medium focus:ring-2 focus:ring-emerald-500">
+                      <select value={entryExamId} onChange={e => setEntryExamId(e.target.value)} className="w-56 px-3 py-2 border border-stone-300 rounded-xl text-sm bg-white font-medium">
                         <option value="">请选择模拟考试...</option>
                         {exams.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
                       </select>
                     </div>
-                    {entryClass && entryExamId && (
-                       <div className="ml-auto text-sm text-stone-500 bg-amber-50 px-4 py-2 rounded-lg border border-amber-100 flex items-center">
-                         <AlertCircle className="w-4 h-4 text-amber-500 mr-2" />
-                         输入完毕后，请务必点击右上角的“一键保存”
-                       </div>
-                    )}
                   </div>
 
                   {entryClass && entryExamId ? (
@@ -435,21 +412,19 @@ export default function App() {
                                 <td className="px-4 py-3 font-mono text-stone-500 border-r border-stone-200">{student.studentId}</td>
                                 <td className="px-4 py-3 font-bold text-stone-800 border-r border-stone-200">{student.chineseName}</td>
                                 
-                                {/* 4个输入框 */}
                                 <td className="px-2 py-2 border-r border-stone-200">
-                                  <input type="number" min="0" max="10" placeholder="-" className="w-full px-2 py-1.5 text-center border border-stone-300 rounded bg-white focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-medium" value={draft.partA || ''} onChange={e => handleScoreChange(student.id, 'partA', e.target.value)} />
+                                  <input type="number" min="0" max="10" placeholder="-" className="w-full px-2 py-1.5 text-center border border-stone-300 rounded bg-white font-medium" value={draft.partA || ''} onChange={e => handleScoreChange(student.id, 'partA', e.target.value)} />
                                 </td>
                                 <td className="px-2 py-2 border-r border-stone-200">
-                                  <input type="number" min="0" max="15" placeholder="-" className="w-full px-2 py-1.5 text-center border border-stone-300 rounded bg-white focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-medium" value={draft.partB || ''} onChange={e => handleScoreChange(student.id, 'partB', e.target.value)} />
+                                  <input type="number" min="0" max="15" placeholder="-" className="w-full px-2 py-1.5 text-center border border-stone-300 rounded bg-white font-medium" value={draft.partB || ''} onChange={e => handleScoreChange(student.id, 'partB', e.target.value)} />
                                 </td>
                                 <td className="px-2 py-2 border-r border-stone-200">
-                                  <input type="number" min="0" max="10" placeholder="-" className="w-full px-2 py-1.5 text-center border border-stone-300 rounded bg-white focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-medium" value={draft.partC || ''} onChange={e => handleScoreChange(student.id, 'partC', e.target.value)} />
+                                  <input type="number" min="0" max="10" placeholder="-" className="w-full px-2 py-1.5 text-center border border-stone-300 rounded bg-white font-medium" value={draft.partC || ''} onChange={e => handleScoreChange(student.id, 'partC', e.target.value)} />
                                 </td>
                                 <td className="px-2 py-2 border-r border-stone-200">
-                                  <input type="number" min="0" max="15" placeholder="-" className="w-full px-2 py-1.5 text-center border border-stone-300 rounded bg-white focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-medium" value={draft.partD || ''} onChange={e => handleScoreChange(student.id, 'partD', e.target.value)} />
+                                  <input type="number" min="0" max="15" placeholder="-" className="w-full px-2 py-1.5 text-center border border-stone-300 rounded bg-white font-medium" value={draft.partD || ''} onChange={e => handleScoreChange(student.id, 'partD', e.target.value)} />
                                 </td>
 
-                                {/* 自动计算结果展示 */}
                                 <td className="px-4 py-3 text-center text-stone-600 font-bold bg-stone-100/50">{hasInput ? calc.sum : '-'}</td>
                                 <td className="px-4 py-3 text-center text-emerald-700 font-extrabold text-lg bg-emerald-50/50">{hasInput ? calc.total : '-'}</td>
                                 <td className="px-4 py-3 text-center bg-emerald-50/50">
@@ -462,9 +437,6 @@ export default function App() {
                               </tr>
                             );
                           })}
-                          {students.filter(s => s.class === entryClass).length === 0 && (
-                            <tr><td colSpan="9" className="text-center py-10 text-stone-400">该班级尚未录入学生名单。</td></tr>
-                          )}
                         </tbody>
                       </table>
                     </div>
@@ -478,7 +450,7 @@ export default function App() {
               </div>
             )}
 
-            {/* 图表及其他保持不变 (缩略) */}
+            {/* 3. 个人统计条形图 */}
             {activeTab === 'student-chart' && (
               <div className="space-y-6">
                 <h2 className="text-2xl font-bold text-stone-800 border-b-2 border-emerald-500 pb-2 inline-block">学生个人成绩条形图</h2>
@@ -496,7 +468,28 @@ export default function App() {
                 </div>
               </div>
             )}
-            
+
+            {/* 4. 班级统计条形图 */}
+            {activeTab === 'class-chart' && (
+              <div className="space-y-6">
+                 <h2 className="text-2xl font-bold text-stone-800 border-b-2 border-emerald-500 pb-2 inline-block">班级平均分条形图</h2>
+                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-200">
+                    <div className="h-80">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={getClassChartData('全部')} margin={{ top: 5, right: 0, bottom: 5, left: -20 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e7e5e4" />
+                          <XAxis dataKey="name" tick={{fontSize: 12}} axisLine={false} tickLine={false} />
+                          <YAxis domain={[0, 100]} tick={{fontSize: 12}} axisLine={false} tickLine={false} />
+                          <Tooltip cursor={{fill: '#f5f5f4'}} contentStyle={{ borderRadius: '12px' }} />
+                          <Bar dataKey="平均分" fill="#d97706" radius={[6, 6, 0, 0]} barSize={60} label={{ position: 'top', fill: '#d97706', fontSize: 12, fontWeight: 'bold' }} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                 </div>
+              </div>
+            )}
+
+            {/* Dashboard Default */}
             {activeTab === 'dashboard' && (
               <div className="space-y-6 animate-fadeIn">
                 <h2 className="text-2xl font-bold text-stone-800 border-b-2 border-emerald-500 pb-2 inline-block">欢迎使用绿叶系统</h2>
