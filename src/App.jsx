@@ -3,11 +3,11 @@ import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine
 } from 'recharts';
 import { 
-  UserCircle, Lock, LogOut, Plus, Trash2, Edit3, Save, X, Search, ChevronRight, BookOpen, Users, BarChart2, CheckCircle, AlertCircle, Leaf, Sprout, ClipboardList, Activity
+  UserCircle, Lock, LogOut, Plus, Trash2, Edit3, Save, X, Search, ChevronRight, BookOpen, Users, BarChart2, CheckCircle, AlertCircle, Leaf, Sprout, ClipboardList
 } from 'lucide-react';
-import { initializeApp } from 'firebase/app';
+
 // ==========================================
-// FIREBASE 配置 (已为您完美集成)
+// FIREBASE 配置 (您的专属配置)
 // ==========================================
 import { initializeApp } from "firebase/app";
 import { getAnalytics } from "firebase/analytics";
@@ -62,13 +62,11 @@ export default function App() {
   
   const [activeTab, setActiveTab] = useState('dashboard'); 
   
-  // 基础数据添加表单
   const [studentInputMode, setStudentInputMode] = useState('batch'); 
   const [bulkInput, setBulkInput] = useState('');
   const [newStudent, setNewStudent] = useState({ studentId: '', englishName: '', chineseName: '', gender: '男', class: '' });
   const [newExam, setNewExam] = useState({ name: '' });
 
-  // 成绩批量录入状态
   const [entryClass, setEntryClass] = useState('');
   const [entryExamId, setEntryExamId] = useState('');
   const [draftScores, setDraftScores] = useState({});
@@ -81,38 +79,28 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 修复权限报错：将 Firestore 监听器用 if (!fbUser) return 守卫，确保在匿名登录完成后才执行
   useEffect(() => {
     if (!fbUser || !db) return;
-    const unsubScores = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'scores'), (snap) => setScores(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))), (err) => console.error("Scores error:", err));
-    const unsubStudents = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'students'), (snap) => setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))), (err) => console.error("Students error:", err));
-    const unsubExams = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'exams'), (snap) => setExams(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))), (err) => console.error("Exams error:", err));
-    const unsubLogs = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'logs'), (snap) => {
-      const logsData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      logsData.sort((a, b) => new Date(b.time) - new Date(a.time));
-      setLogs(logsData);
-    }, (err) => console.error("Logs error:", err));
-    return () => { unsubScores(); unsubStudents(); unsubExams(); unsubLogs(); };
+    const unsubScores = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'scores'), (snap) => setScores(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))), (err) => console.error(err));
+    const unsubStudents = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'students'), (snap) => setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))), (err) => console.error(err));
+    const unsubExams = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'exams'), (snap) => setExams(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))), (err) => console.error(err));
+    return () => { unsubScores(); unsubStudents(); unsubExams(); };
   }, [fbUser]);
 
   const addLog = async (action) => {
-    const logData = { time: new Date().toISOString(), user: user || 'System', action };
-    if (db && fbUser) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'logs', Date.now().toString()), logData);
+    if (db && fbUser) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'logs', Date.now().toString()), { time: new Date().toISOString(), user: user || 'System', action });
   };
 
-  // --- 登录逻辑 ---
-  const handleTeacherLogin = (e) => { e.preventDefault(); if (username.trim()) { setUser(`教师: ${username}`); addLog('教师登录系统'); setLoginError(''); setUsername(''); } else setLoginError('请输入您的姓名。'); };
-  const handleAdminLogin = (e) => { e.preventDefault(); if (password === ADMIN_PASSWORD) { setUser('Admin'); addLog('管理员登录'); setLoginError(''); setPassword(''); setLoginView('main'); } else setLoginError('管理员密码错误。'); };
-  const handleSecurityCheck = (e) => { e.preventDefault(); if (securityAnswer.trim() === SECURITY_ANSWER) { alert(`验证成功！请直接登录。`); setLoginView('main'); setSecurityAnswer(''); setLoginError(''); } else setLoginError('回答错误。'); };
+  const handleTeacherLogin = (e) => { e.preventDefault(); if (username.trim()) { setUser(`教师: ${username}`); addLog('教师登录系统'); setLoginError(''); setUsername(''); } else setLoginError('请输入姓名'); };
+  const handleAdminLogin = (e) => { e.preventDefault(); if (password === ADMIN_PASSWORD) { setUser('Admin'); addLog('管理员登录'); setLoginError(''); setPassword(''); setLoginView('main'); } else setLoginError('密码错误'); };
+  const handleSecurityCheck = (e) => { e.preventDefault(); if (securityAnswer.trim() === SECURITY_ANSWER) { alert(`验证成功！请登录。`); setLoginView('main'); setSecurityAnswer(''); setLoginError(''); } else setLoginError('回答错误。'); };
   const handleLogout = () => { addLog('退出登录'); setUser(null); setActiveTab('dashboard'); };
 
-  // --- Excel 批量导入学生 ---
   const handleBulkImport = async () => {
-    if(!bulkInput.trim()) return alert("请先在文本框中粘贴 Excel 数据！");
+    if(!bulkInput.trim()) return alert("请粘贴 Excel 数据！");
     const rows = bulkInput.trim().split('\n');
     let addedCount = 0;
     const batch = (db && fbUser) ? writeBatch(db) : null;
-    
     rows.forEach((row, index) => {
       const cols = row.split('\t'); 
       if (cols.length >= 5) {
@@ -122,24 +110,15 @@ export default function App() {
         addedCount++;
       }
     });
-    if (addedCount === 0) return alert("没有读取到有效数据，请检查格式。");
-    try {
-      if (batch) await batch.commit();
-      addLog(`导入了 ${addedCount} 名学生`); setBulkInput(''); alert(`成功导入 ${addedCount} 名学生！`);
-    } catch(err) { alert("导入错误。"); }
+    if (addedCount === 0) return alert("读取失败，请检查格式。");
+    try { if (batch) await batch.commit(); addLog(`导入 ${addedCount} 名学生`); setBulkInput(''); alert(`成功导入 ${addedCount} 名学生！`); } catch(err) { alert("导入错误。"); }
   };
 
-  const handleAddSingleStudent = async (e) => {
-    e.preventDefault();
-    const id = Date.now().toString();
-    if (db && fbUser) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', id), { ...newStudent, id });
-    setNewStudent({ studentId: '', englishName: '', chineseName: '', gender: '男', class: '' });
-  };
-  const handleDeleteStudent = async (id) => { if(window.confirm('确定删除此学生吗？')) if (db && fbUser) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', id)); };
+  const handleAddSingleStudent = async (e) => { e.preventDefault(); const id = Date.now().toString(); if (db && fbUser) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', id), { ...newStudent, id }); setNewStudent({ studentId: '', englishName: '', chineseName: '', gender: '男', class: '' }); };
+  const handleDeleteStudent = async (id) => { if(window.confirm('确定删除吗？')) if (db && fbUser) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', id)); };
   const handleAddExam = async (e) => { e.preventDefault(); const id = Date.now().toString(); if (db && fbUser) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'exams', id), { ...newExam, id }); setNewExam({ name: '' }); };
   const handleDeleteExam = async (id) => { if(window.confirm('确定删除吗？')) if (db && fbUser) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'exams', id)); };
 
-  // --- 成绩录入核心逻辑 (表格批量) ---
   useEffect(() => {
     if (entryClass && entryExamId) {
       const currentStudents = students.filter(s => s.class === entryClass);
@@ -147,54 +126,28 @@ export default function App() {
       currentStudents.forEach(s => {
         const existing = scores.find(score => score.studentId === s.id && score.examId === entryExamId);
         newDrafts[s.id] = {
-          partA: existing ? existing.partA : '',
-          partB: existing ? existing.partB : '',
-          partC: existing ? existing.partC : '',
-          partD: existing ? existing.partD : '',
+          partA: existing ? existing.partA : '', partB: existing ? existing.partB : '',
+          partC: existing ? existing.partC : '', partD: existing ? existing.partD : '',
           docId: existing ? existing.id : `${s.id}_${entryExamId}`
         };
       });
       setDraftScores(newDrafts);
-    } else {
-      setDraftScores({});
-    }
+    } else { setDraftScores({}); }
   }, [entryClass, entryExamId, students, scores]);
 
-  const handleScoreChange = (studentId, field, value) => {
-    setDraftScores(prev => ({
-      ...prev,
-      [studentId]: {
-        ...prev[studentId],
-        [field]: value
-      }
-    }));
-  };
+  const handleScoreChange = (studentId, field, value) => { setDraftScores(prev => ({ ...prev, [studentId]: { ...prev[studentId], [field]: value } })); };
 
   const handleSaveBatchScores = async () => {
     const batch = (db && fbUser) ? writeBatch(db) : null;
     let savedCount = 0;
-
     for (const [studentId, draft] of Object.entries(draftScores)) {
       if (draft.partA !== '' || draft.partB !== '' || draft.partC !== '' || draft.partD !== '') {
-        const scoreData = {
-          studentId,
-          examId: entryExamId,
-          partA: Number(draft.partA || 0),
-          partB: Number(draft.partB || 0),
-          partC: Number(draft.partC || 0),
-          partD: Number(draft.partD || 0),
-        };
-        if (batch) {
-          batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'scores', draft.docId), scoreData);
-        }
+        const scoreData = { studentId, examId: entryExamId, partA: Number(draft.partA||0), partB: Number(draft.partB||0), partC: Number(draft.partC||0), partD: Number(draft.partD||0) };
+        if (batch) batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'scores', draft.docId), scoreData);
         savedCount++;
       }
     }
-    if (batch) {
-      await batch.commit();
-      addLog(`批量保存了 ${entryClass} 的成绩`);
-      alert(`成功保存了 ${savedCount} 名学生的成绩！`);
-    }
+    if (batch) { await batch.commit(); addLog(`保存成绩`); alert(`成功保存 ${savedCount} 名学生的成绩！`); }
   };
 
   const calculateResult = (partA = 0, partB = 0, partC = 0, partD = 0) => {
@@ -202,34 +155,6 @@ export default function App() {
     const total = sum * 2;
     const gradeInfo = GRADE_RANGES.find(g => total >= g.min && total <= g.max) || GRADE_RANGES[GRADE_RANGES.length - 1];
     return { sum, total, grade: gradeInfo.grade, status: gradeInfo.status };
-  };
-
-  const getStudentChartData = (studentId) => {
-    const studentScores = scores.filter(s => s.studentId === studentId);
-    return exams.map(exam => {
-      const score = studentScores.find(s => s.examId === exam.id);
-      const result = score ? calculateResult(score.partA, score.partB, score.partC, score.partD) : null;
-      return { 
-        name: exam.name, 
-        '总分': result ? result.total : 0,
-        'A部分(10)': score ? score.partA : 0,
-        'B部分(15)': score ? score.partB : 0,
-        'C部分(10)': score ? score.partC : 0,
-        'D部分(15)': score ? score.partD : 0,
-        status: result ? result.status : null
-      };
-    });
-  };
-
-  const getClassChartData = (className) => {
-    const classStudents = className === '全部' ? students : students.filter(s => s.class === className);
-    const studentIds = classStudents.map(s => s.id);
-    return exams.map(exam => {
-      const examScores = scores.filter(s => s.examId === exam.id && studentIds.includes(s.studentId));
-      if (examScores.length === 0) return { name: exam.name, '平均分': 0 };
-      const totalMarks = examScores.reduce((sum, score) => sum + calculateResult(score.partA, score.partB, score.partC, score.partD).total, 0);
-      return { name: exam.name, '平均分': Number((totalMarks / examScores.length).toFixed(1)) };
-    });
   };
 
   if (!user) {
@@ -269,36 +194,29 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#f4f1ea] font-sans flex text-stone-800">
       <aside className="w-64 bg-white border-r border-stone-200 hidden md:flex flex-col shadow-sm z-10">
-        <div className="h-16 flex items-center px-6 bg-emerald-700 text-white">
-          <Leaf className="w-6 h-6 mr-2 text-emerald-200" />
-          <span className="font-bold text-xl">绿叶系统</span>
-        </div>
+        <div className="h-16 flex items-center px-6 bg-emerald-700 text-white"><Leaf className="w-6 h-6 mr-2 text-emerald-200" /><span className="font-bold text-xl">绿叶系统</span></div>
         <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-2">
           <NavItem active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<BarChart2 />} label="系统概览" />
           <NavItem active={activeTab === 'manage-data'} onClick={() => setActiveTab('manage-data')} icon={<BookOpen />} label="1. 基础资料管理" />
           <NavItem active={activeTab === 'data-entry'} onClick={() => setActiveTab('data-entry')} icon={<Edit3 />} label="2. 成绩录入表格" />
-          <NavItem active={activeTab === 'student-chart'} onClick={() => setActiveTab('student-chart')} icon={<Users />} label="3. 个人统计(Bar)" />
-          <NavItem active={activeTab === 'class-chart'} onClick={() => setActiveTab('class-chart')} icon={<BarChart2 />} label="4. 班级统计(Bar)" />
+          <NavItem active={activeTab === 'student-chart'} onClick={() => setActiveTab('student-chart')} icon={<Users />} label="3. 个人统计分析" />
+          <NavItem active={activeTab === 'class-chart'} onClick={() => setActiveTab('class-chart')} icon={<BarChart2 />} label="4. 班级整体分析" />
         </nav>
         <div className="p-4 border-t border-stone-200">
-          <button onClick={handleLogout} className="flex items-center w-full px-4 py-2.5 text-sm font-bold text-stone-600 hover:bg-red-50 hover:text-red-600 rounded-xl">
-            <LogOut className="w-4 h-4 mr-3" /> 退出登录
-          </button>
+          <button onClick={handleLogout} className="flex items-center w-full px-4 py-2.5 text-sm font-bold text-stone-600 hover:bg-red-50 hover:text-red-600 rounded-xl"><LogOut className="w-4 h-4 mr-3" /> 退出登录</button>
         </div>
       </aside>
 
       <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
         <Leaf className="absolute -bottom-20 -right-20 w-96 h-96 text-emerald-600/5 -rotate-12 pointer-events-none" />
-        
         <div className="flex-1 overflow-auto p-6 md:p-8 relative z-10">
           <div className="max-w-6xl mx-auto space-y-6">
 
-            {/* 1. 基础数据管理 */}
+            {/* TAB 1: 基础资料 */}
             {activeTab === 'manage-data' && (
               <div className="space-y-6 animate-fadeIn">
                  <h2 className="text-2xl font-bold text-stone-800 border-b-2 border-emerald-500 pb-2 inline-block">第一步: 输入试卷与学生资料</h2>
                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    {/* 考试管理 */}
                     <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-6 flex flex-col h-full">
                       <h3 className="font-bold text-lg text-amber-800 mb-4 flex items-center"><BookOpen className="w-5 h-5 mr-2"/>1. 考试项目管理</h3>
                       <form onSubmit={handleAddExam} className="flex gap-2 mb-6">
@@ -314,7 +232,6 @@ export default function App() {
                         ))}
                       </div>
                     </div>
-                    {/* 学生管理 */}
                     <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-6 flex flex-col h-full">
                       <div className="flex justify-between items-center mb-4">
                         <h3 className="font-bold text-lg text-emerald-800 flex items-center"><Users className="w-5 h-5 mr-2"/>2. 学生资料录入</h3>
@@ -364,7 +281,7 @@ export default function App() {
               </div>
             )}
 
-            {/* 2. 成绩录入智能表格 */}
+            {/* TAB 2: 成绩录入 */}
             {activeTab === 'data-entry' && (
               <div className="space-y-6 animate-fadeIn">
                 <div className="flex justify-between items-end border-b-2 border-emerald-500 pb-2">
@@ -375,7 +292,6 @@ export default function App() {
                     </button>
                   )}
                 </div>
-                
                 <div className="bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden">
                   <div className="p-6 bg-stone-50 border-b border-stone-200 flex flex-wrap gap-4 items-center">
                     <div>
@@ -393,7 +309,6 @@ export default function App() {
                       </select>
                     </div>
                   </div>
-
                   {entryClass && entryExamId ? (
                     <div className="overflow-x-auto max-h-[60vh]">
                       <table className="w-full text-sm text-left border-collapse">
@@ -415,113 +330,70 @@ export default function App() {
                             const draft = draftScores[student.id] || {};
                             const calc = calculateResult(draft.partA, draft.partB, draft.partC, draft.partD);
                             const hasInput = draft.partA !== '' || draft.partB !== '' || draft.partC !== '' || draft.partD !== '';
-                            
                             return (
                               <tr key={student.id} className={`hover:bg-emerald-50/50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-stone-50'}`}>
                                 <td className="px-4 py-3 font-mono text-stone-500 border-r border-stone-200">{student.studentId}</td>
                                 <td className="px-4 py-3 font-bold text-stone-800 border-r border-stone-200">{student.chineseName}</td>
-                                
-                                <td className="px-2 py-2 border-r border-stone-200">
-                                  <input type="number" min="0" max="10" placeholder="-" className="w-full px-2 py-1.5 text-center border border-stone-300 rounded bg-white font-medium" value={draft.partA || ''} onChange={e => handleScoreChange(student.id, 'partA', e.target.value)} />
-                                </td>
-                                <td className="px-2 py-2 border-r border-stone-200">
-                                  <input type="number" min="0" max="15" placeholder="-" className="w-full px-2 py-1.5 text-center border border-stone-300 rounded bg-white font-medium" value={draft.partB || ''} onChange={e => handleScoreChange(student.id, 'partB', e.target.value)} />
-                                </td>
-                                <td className="px-2 py-2 border-r border-stone-200">
-                                  <input type="number" min="0" max="10" placeholder="-" className="w-full px-2 py-1.5 text-center border border-stone-300 rounded bg-white font-medium" value={draft.partC || ''} onChange={e => handleScoreChange(student.id, 'partC', e.target.value)} />
-                                </td>
-                                <td className="px-2 py-2 border-r border-stone-200">
-                                  <input type="number" min="0" max="15" placeholder="-" className="w-full px-2 py-1.5 text-center border border-stone-300 rounded bg-white font-medium" value={draft.partD || ''} onChange={e => handleScoreChange(student.id, 'partD', e.target.value)} />
-                                </td>
-
+                                <td className="px-2 py-2 border-r border-stone-200"><input type="number" min="0" max="10" placeholder="-" className="w-full px-2 py-1.5 text-center border border-stone-300 rounded bg-white font-medium" value={draft.partA || ''} onChange={e => handleScoreChange(student.id, 'partA', e.target.value)} /></td>
+                                <td className="px-2 py-2 border-r border-stone-200"><input type="number" min="0" max="15" placeholder="-" className="w-full px-2 py-1.5 text-center border border-stone-300 rounded bg-white font-medium" value={draft.partB || ''} onChange={e => handleScoreChange(student.id, 'partB', e.target.value)} /></td>
+                                <td className="px-2 py-2 border-r border-stone-200"><input type="number" min="0" max="10" placeholder="-" className="w-full px-2 py-1.5 text-center border border-stone-300 rounded bg-white font-medium" value={draft.partC || ''} onChange={e => handleScoreChange(student.id, 'partC', e.target.value)} /></td>
+                                <td className="px-2 py-2 border-r border-stone-200"><input type="number" min="0" max="15" placeholder="-" className="w-full px-2 py-1.5 text-center border border-stone-300 rounded bg-white font-medium" value={draft.partD || ''} onChange={e => handleScoreChange(student.id, 'partD', e.target.value)} /></td>
                                 <td className="px-4 py-3 text-center text-stone-600 font-bold bg-stone-100/50">{hasInput ? calc.sum : '-'}</td>
                                 <td className="px-4 py-3 text-center text-emerald-700 font-extrabold text-lg bg-emerald-50/50">{hasInput ? calc.total : '-'}</td>
-                                <td className="px-4 py-3 text-center bg-emerald-50/50">
-                                  {hasInput ? (
-                                    <span className={`px-2 py-1 rounded text-xs font-bold ${calc.grade === 'F' ? 'bg-red-100 text-red-700' : 'bg-emerald-200 text-emerald-800'}`}>
-                                      {calc.grade}
-                                    </span>
-                                  ) : '-'}
-                                </td>
+                                <td className="px-4 py-3 text-center bg-emerald-50/50">{hasInput ? (<span className={`px-2 py-1 rounded text-xs font-bold ${calc.grade === 'F' ? 'bg-red-100 text-red-700' : 'bg-emerald-200 text-emerald-800'}`}>{calc.grade}</span>) : '-'}</td>
                               </tr>
                             );
                           })}
                         </tbody>
                       </table>
                     </div>
-                  ) : (
-                    <div className="p-16 text-center text-stone-400">
-                      <ClipboardList className="w-12 h-12 mx-auto mb-4 opacity-30" />
-                      请在上方选择班级和考试，即可显示批量录入表格。
-                    </div>
-                  )}
+                  ) : (<div className="p-16 text-center text-stone-400">请在上方选择班级和考试。</div>)}
                 </div>
               </div>
             )}
 
-            {/* 3. 个人统计图表 (更新为双图表+及格状态) */}
+            {/* TAB 3: 个人统计 (含及格状态徽章 & 100分折线图) */}
             {activeTab === 'student-chart' && (
               <div className="space-y-6">
                 <h2 className="text-2xl font-bold text-stone-800 border-b-2 border-emerald-500 pb-2 inline-block">学生个人成绩分析</h2>
-                <div className="space-y-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {students.map(student => {
-                    const data = getStudentChartData(student.id);
-                    // 只要有一科成绩，就渲染该学生的图表
-                    if (!data.some(d => d['总分'] > 0)) return null;
+                    const studentScores = scores.filter(s => s.studentId === student.id);
+                    if (studentScores.length === 0) return null;
                     
+                    const chartData = exams.map(exam => {
+                      const score = studentScores.find(s => s.examId === exam.id);
+                      if (!score) return null;
+                      const res = calculateResult(score.partA, score.partB, score.partC, score.partD);
+                      return { name: exam.name, '总分': res.total, '状态': res.grade === 'F' ? '不及格' : '及格' };
+                    }).filter(Boolean);
+
+                    if (chartData.length === 0) return null;
+
                     return (
                       <div key={student.id} className="bg-white p-6 rounded-2xl shadow-sm border border-stone-200">
-                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 border-b border-stone-100 pb-4 gap-4">
-                          <h3 className="font-bold text-stone-800 text-lg flex items-center">
-                            <UserCircle className="w-6 h-6 mr-2 text-emerald-600"/>
-                            {student.chineseName} ({student.class})
-                          </h3>
-                          {/* 顶部：及格/不及格 状态徽章 */}
+                        <div className="flex flex-col gap-3 mb-6">
+                          <h3 className="font-bold text-xl text-stone-800">{student.chineseName} <span className="text-stone-500 text-base">({student.class})</span></h3>
                           <div className="flex flex-wrap gap-2">
-                            {data.filter(d => d.status).map((d, idx) => (
-                              <div key={idx} className={`px-3 py-1.5 rounded-lg text-sm font-bold flex items-center shadow-sm ${d.status === '及格' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-red-100 text-red-700 border border-red-200'}`}>
-                                {d.name}: {d.status}
-                              </div>
-                            ))}
+                             {chartData.map((d, i) => (
+                               <span key={i} className={`px-2.5 py-1 text-xs rounded-full font-bold border ${d.状态 === '及格' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                                 {d.name}: {d.状态} ({d.总分}分)
+                               </span>
+                             ))}
                           </div>
                         </div>
-                        
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                          {/* 表 1: 100分满分总分对比 (折线图) */}
-                          <div className="bg-stone-50 p-4 rounded-xl border border-stone-100">
-                            <h4 className="text-sm font-bold text-stone-600 mb-4 text-center">总分进展对比 (满分100)</h4>
-                            <div className="h-64">
-                              <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={data} margin={{ top: 15, right: 10, bottom: 5, left: -20 }}>
-                                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e7e5e4" />
-                                  <XAxis dataKey="name" tick={{fontSize: 12, fill: '#78716c'}} axisLine={false} tickLine={false} />
-                                  <YAxis domain={[0, 100]} tick={{fontSize: 12, fill: '#78716c'}} axisLine={false} tickLine={false} />
-                                  <Tooltip cursor={{fill: '#f5f5f4'}} contentStyle={{ borderRadius: '12px' }} />
-                                  <Line type="monotone" dataKey="总分" stroke="#059669" strokeWidth={4} activeDot={{ r: 6 }} label={{ position: 'top', fill: '#059669', fontSize: 12, fontWeight: 'bold' }} />
-                                </LineChart>
-                              </ResponsiveContainer>
-                            </div>
-                          </div>
-
-                          {/* 表 2: A/B/C/D 各部分得分详情 (条形图) */}
-                          <div className="bg-stone-50 p-4 rounded-xl border border-stone-100">
-                            <h4 className="text-sm font-bold text-stone-600 mb-4 text-center">各部分得分详情 (A/B/C/D)</h4>
-                            <div className="h-64">
-                              <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={data} margin={{ top: 5, right: 10, bottom: 5, left: -20 }}>
-                                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e7e5e4" />
-                                  <XAxis dataKey="name" tick={{fontSize: 12, fill: '#78716c'}} axisLine={false} tickLine={false} />
-                                  <YAxis domain={[0, 15]} tick={{fontSize: 12, fill: '#78716c'}} axisLine={false} tickLine={false} />
-                                  <Tooltip cursor={{fill: '#f5f5f4'}} contentStyle={{ borderRadius: '12px' }} />
-                                  <Legend wrapperStyle={{fontSize: '11px', paddingTop: '10px'}} />
-                                  <Bar dataKey="A部分(10)" fill="#3b82f6" radius={[2, 2, 0, 0]} />
-                                  <Bar dataKey="B部分(15)" fill="#8b5cf6" radius={[2, 2, 0, 0]} />
-                                  <Bar dataKey="C部分(10)" fill="#eab308" radius={[2, 2, 0, 0]} />
-                                  <Bar dataKey="D部分(15)" fill="#ef4444" radius={[2, 2, 0, 0]} />
-                                </BarChart>
-                              </ResponsiveContainer>
-                            </div>
-                          </div>
+                        <div className="h-64 mt-4">
+                          <h4 className="text-sm font-bold text-stone-500 mb-2">历次考试总分趋势 (100分满分)</h4>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={chartData} margin={{ top: 10, right: 10, bottom: 0, left: -20 }}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e7e5e4" />
+                              <XAxis dataKey="name" tick={{fontSize: 12, fill: '#78716c'}} axisLine={false} tickLine={false} />
+                              <YAxis domain={[0, 100]} tick={{fontSize: 12, fill: '#78716c'}} axisLine={false} tickLine={false} />
+                              <Tooltip cursor={{stroke: '#e7e5e4', strokeWidth: 2}} contentStyle={{ borderRadius: '8px' }} />
+                              <ReferenceLine y={20} stroke="#ef4444" strokeDasharray="3 3" label={{ position: 'insideTopLeft', value: '及格线 (20)', fill: '#ef4444', fontSize: 12 }} />
+                              <Line type="monotone" dataKey="总分" stroke="#0ea5e9" strokeWidth={3} dot={{r: 4, fill: '#0ea5e9'}} activeDot={{r: 6}} />
+                            </LineChart>
+                          </ResponsiveContainer>
                         </div>
                       </div>
                     );
@@ -530,124 +402,55 @@ export default function App() {
               </div>
             )}
 
-            {/* 4. 班级统计条形图 */}
+            {/* TAB 4: 班级整体分析 (含所有学生折线图 & 及格/不及格人数) */}
             {activeTab === 'class-chart' && (
-              <div className="space-y-6 animate-fadeIn">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b-2 border-emerald-500 pb-2">
-                  <h2 className="text-2xl font-bold text-stone-800">班级平均分与详细分析</h2>
-                  <select 
-                    value={activeClass}
-                    onChange={(e) => setActiveClass(e.target.value)}
-                    className="px-4 py-2 border border-stone-300 rounded-xl shadow-sm focus:ring-2 focus:ring-emerald-500 bg-white font-medium"
-                  >
-                    {classes.map(c => <option key={c} value={c}>{c === '全部' ? '所有班级' : `${c} 班`}</option>)}
-                  </select>
-                </div>
+              <div className="space-y-6">
+                 <h2 className="text-2xl font-bold text-stone-800 border-b-2 border-emerald-500 pb-2 inline-block">班级整体分析 (全班总分概览)</h2>
+                 {exams.map(exam => {
+                    const examScores = scores.filter(s => s.examId === exam.id);
+                    if (examScores.length === 0) return null;
 
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-200">
-                  <h3 className="font-bold text-stone-800 mb-6 flex items-center">
-                    <BarChart2 className="w-5 h-5 mr-2 text-amber-500"/> 班级平均分趋势
-                  </h3>
-                  <div className="h-80">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={getClassChartData(activeClass)} margin={{ top: 5, right: 20, bottom: 5, left: -20 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e7e5e4" />
-                        <XAxis dataKey="name" tick={{fontSize: 12, fill: '#78716c', fontWeight:600}} axisLine={false} tickLine={false} />
-                        <YAxis domain={[0, 100]} tick={{fontSize: 12, fill: '#78716c'}} axisLine={false} tickLine={false} />
-                        <Tooltip contentStyle={{ borderRadius: '12px', border: '1px solid #e7e5e4' }} />
-                        <Line type="monotone" dataKey="平均分" stroke="#d97706" strokeWidth={4} activeDot={{ r: 8, fill: '#059669' }} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
+                    let passCount = 0;
+                    let failCount = 0;
 
-                <h3 className="text-xl font-bold text-stone-800 mt-10 mb-4 flex items-center">
-                  <Leaf className="w-6 h-6 mr-2 text-emerald-600"/> 各项考试详细分析
-                </h3>
-                 
-                {exams.map(exam => {
-                   const classStudents = activeClass === '全部' ? students : students.filter(s => s.class === activeClass);
-                   const studentIds = classStudents.map(s => s.id);
-                   const relevantScores = scores.filter(s => s.examId === exam.id && studentIds.includes(s.studentId));
-                   
-                   if (relevantScores.length === 0) return null;
+                    const classData = students.map(student => {
+                      const score = examScores.find(s => s.studentId === student.id);
+                      if (!score) return null;
+                      const res = calculateResult(score.partA, score.partB, score.partC, score.partD);
+                      if (res.grade === 'F') failCount++; else passCount++;
+                      return { name: student.chineseName, '总分': res.total };
+                    }).filter(Boolean);
 
-                   // 1. 计算及格/不及格人数与学生折线图数据
-                   let passCount = 0;
-                   let failCount = 0;
-                   const studentLineData = [];
+                    if (classData.length === 0) return null;
 
-                   classStudents.forEach(student => {
-                     const score = relevantScores.find(s => s.studentId === student.id);
-                     if (score) {
-                       const calc = calculateResult(score.partA, score.partB, score.partC, score.partD);
-                       if (calc.status === '及格') passCount++;
-                       else failCount++;
-                       
-                       studentLineData.push({
-                         name: student.chineseName,
-                         '总分': calc.total
-                       });
-                     }
-                   });
-
-                   // 2. 获取各部分分析数据
-                   const analysisData = getPartAnalysisData(exam.id, activeClass);
-
-                   return (
-                     <div key={exam.id} className="bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden mb-10">
-                       <div className="bg-emerald-700 px-6 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                         <h4 className="font-bold text-white tracking-wide text-lg">{exam.name} - 班级表现透视</h4>
-                         <div className="flex gap-3">
-                           <span className="bg-emerald-100 text-emerald-800 px-3 py-1.5 rounded-full text-sm font-bold shadow-sm flex items-center">
-                             <CheckCircle className="w-4 h-4 mr-1.5" /> 及格: {passCount} 人
-                           </span>
-                           <span className="bg-red-100 text-red-800 px-3 py-1.5 rounded-full text-sm font-bold shadow-sm flex items-center">
-                             <AlertCircle className="w-4 h-4 mr-1.5" /> 不及格: {failCount} 人
-                           </span>
-                         </div>
-                       </div>
-                       
-                       <div className="p-6">
-                         {/* 学生总分折线图 */}
-                         <div className="mb-10 border-b border-stone-100 pb-10">
-                            <h5 className="font-bold text-stone-700 mb-6 flex items-center text-base">
-                              <Activity className="w-5 h-5 mr-2 text-emerald-600"/> 1. 全班学生总分对比 (100满分)
-                            </h5>
-                            <div className="h-72">
-                              <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={studentLineData} margin={{ top: 15, right: 20, bottom: 40, left: -20 }}>
-                                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e7e5e4" />
-                                  <XAxis dataKey="name" tick={{fontSize: 12, fill: '#78716c'}} axisLine={false} tickLine={false} angle={-45} textAnchor="end" />
-                                  <YAxis domain={[0, 100]} tick={{fontSize: 12, fill: '#78716c'}} axisLine={false} tickLine={false} />
-                                  <Tooltip contentStyle={{ borderRadius: '12px', border: '1px solid #e7e5e4' }} />
-                                  <ReferenceLine y={20} stroke="#ef4444" strokeDasharray="3 3" label={{ position: 'top', value: '及格线(20分)', fill: '#ef4444', fontSize: 12, fontWeight: 'bold' }} />
-                                  <Line type="monotone" dataKey="总分" stroke="#059669" strokeWidth={3} activeDot={{ r: 6, fill: '#d97706' }} />
-                                </LineChart>
-                              </ResponsiveContainer>
+                    return (
+                      <div key={exam.id} className="bg-white p-6 rounded-2xl shadow-sm border border-stone-200">
+                         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                            <h3 className="font-bold text-xl text-stone-800">{exam.name} - 全班成绩分布图</h3>
+                            <div className="flex gap-3">
+                               <span className="px-4 py-1.5 bg-emerald-100 text-emerald-800 rounded-lg text-sm font-bold border border-emerald-200">
+                                 ✅ 及格: {passCount} 人
+                               </span>
+                               <span className="px-4 py-1.5 bg-red-100 text-red-800 rounded-lg text-sm font-bold border border-red-200">
+                                 ⚠️ 不及格: {failCount} 人
+                               </span>
                             </div>
                          </div>
-
-                         {/* 原有：各部分达标情况 */}
-                         <h5 className="font-bold text-stone-700 mb-6 flex items-center text-base">
-                           <BarChart2 className="w-5 h-5 mr-2 text-amber-500"/> 2. 试卷各部分达标率 (堆叠条形图)
-                         </h5>
-                         <div className="h-64 mb-8">
+                         
+                         <div className="h-[350px]">
                            <ResponsiveContainer width="100%" height="100%">
-                             <BarChart data={analysisData} layout="vertical" margin={{ top: 5, right: 20, bottom: 5, left: 20 }}>
-                               <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e7e5e4" />
-                               <XAxis type="number" tick={{fontSize: 12}} axisLine={false} tickLine={false} />
-                               <YAxis type="category" dataKey="name" tick={{fontSize: 12, fontWeight: 'bold'}} axisLine={false} tickLine={false} width={120} />
+                             <LineChart data={classData} margin={{ top: 20, right: 10, bottom: 10, left: -20 }}>
+                               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e7e5e4" />
+                               <XAxis dataKey="name" tick={{fontSize: 12, fill: '#78716c'}} axisLine={false} tickLine={false} angle={-30} textAnchor="end" height={60} />
+                               <YAxis domain={[0, 100]} tick={{fontSize: 12, fill: '#78716c'}} axisLine={false} tickLine={false} />
                                <Tooltip cursor={{fill: '#f5f5f4'}} contentStyle={{ borderRadius: '12px' }} />
-                               <Legend />
-                               <Bar dataKey="达标" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} barSize={30} />
-                               <Bar dataKey="未达标" stackId="a" fill="#ef4444" radius={[0, 4, 4, 0]} barSize={30} />
-                             </BarChart>
+                               <ReferenceLine y={20} stroke="#ef4444" strokeDasharray="3 3" label={{ position: 'top', value: '及格线 (20分)', fill: '#ef4444', fontSize: 12, fontWeight: 'bold' }} />
+                               <Line type="monotone" dataKey="总分" stroke="#10b981" strokeWidth={3} dot={{r: 4, fill: '#10b981'}} activeDot={{r: 6}} />
+                             </LineChart>
                            </ResponsiveContainer>
                          </div>
-                       </div>
-                     </div>
-                   );
+                      </div>
+                    )
                  })}
               </div>
             )}
