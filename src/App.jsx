@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
+  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine
 } from 'recharts';
 import { 
   UserCircle, Lock, LogOut, Plus, Trash2, Edit3, Save, X, Search, ChevronRight, 
@@ -987,8 +987,11 @@ export default function App() {
                     </div>
 
                     {analysisClass && analysisExamId ? (() => {
-                      // 聚合数据逻辑
-                      const classStudents = students.filter(s => s.class === analysisClass);
+                      // 聚合数据逻辑，并按照学生英文名A-Z排序
+                      const classStudents = students
+                        .filter(s => s.class === analysisClass)
+                        .sort((a, b) => (a.englishName || '').localeCompare(b.englishName || ''));
+                        
                       const classScores = classStudents.map(student => {
                         const score = scores.find(s => s.studentId === student.id && s.examId === analysisExamId);
                         const hasTaken = !!score && (score.partA !== '' || score.partB !== '');
@@ -1017,6 +1020,13 @@ export default function App() {
                       const distB = getPartDist('partB', 15);
                       const distC = getPartDist('partC', 10);
                       const distD = getPartDist('partD', 15);
+
+                      // 生成折线图专用数据
+                      const classChartData = classScores.map(item => ({
+                        name: item.student.chineseName,
+                        total: item.calc.total,
+                        isFail: item.calc.grade === 'F'
+                      }));
 
                       return (
                         <div className="p-6 space-y-6">
@@ -1132,6 +1142,55 @@ export default function App() {
                                </table>
                              </div>
                           </div>
+
+                          {/* 班级总分线条统计图 */}
+                          <div className="mt-8 border border-stone-200 rounded-xl overflow-hidden shadow-sm bg-white p-6">
+                             <div className="flex items-center text-stone-800 font-bold mb-6">
+                                <TrendingUp className="w-5 h-5 mr-2 text-emerald-600" />
+                                班级总分趋势图 (按学生 A-Z 排序)
+                             </div>
+                             <div className="h-[350px] w-full">
+                               <ResponsiveContainer width="100%" height="100%">
+                                 <LineChart data={classChartData} margin={{ top: 20, right: 20, left: -20, bottom: 40 }}>
+                                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e7e5e4" />
+                                   <XAxis dataKey="name" tick={{fontSize: 12, fill: '#78716c'}} axisLine={false} tickLine={false} dy={15} angle={-45} textAnchor="end" />
+                                   <YAxis domain={[0, 100]} tick={{fontSize: 12, fill: '#78716c'}} axisLine={false} tickLine={false} />
+                                   <Tooltip 
+                                     contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', padding: '12px' }} 
+                                     labelStyle={{ fontWeight: 'bold', marginBottom: '8px', color: '#1c1917' }}
+                                   />
+                                   <ReferenceLine y={20} stroke="#ef4444" strokeDasharray="3 3" label={{ position: 'top', value: '及格线 (20分)', fill: '#ef4444', fontSize: 12, fontWeight: 'bold' }} />
+                                   <Line 
+                                     type="monotone" 
+                                     dataKey="total" 
+                                     name="总分" 
+                                     stroke="#cbd5e1" 
+                                     strokeWidth={2} 
+                                     activeDot={{ r: 8 }}
+                                     dot={(props) => {
+                                       const { cx, cy, payload } = props;
+                                       return (
+                                         <circle 
+                                           key={`dot-${payload.name}`} 
+                                           cx={cx} 
+                                           cy={cy} 
+                                           r={5} 
+                                           fill={payload.isFail ? '#ef4444' : '#10b981'} 
+                                           stroke="#fff" 
+                                           strokeWidth={2} 
+                                         />
+                                       );
+                                     }} 
+                                   />
+                                 </LineChart>
+                               </ResponsiveContainer>
+                             </div>
+                             <div className="mt-2 flex justify-center gap-6 text-sm font-medium text-stone-600">
+                               <div className="flex items-center"><span className="w-3 h-3 rounded-full bg-[#10b981] mr-2 shadow-sm"></span> 及格学生</div>
+                               <div className="flex items-center"><span className="w-3 h-3 rounded-full bg-[#ef4444] mr-2 shadow-sm"></span> 不及格学生</div>
+                             </div>
+                          </div>
+
                         </div>
                       );
                     })() : (
