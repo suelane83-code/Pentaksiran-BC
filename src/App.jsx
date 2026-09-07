@@ -49,17 +49,17 @@ const GRADE_RANGES = [
 
 export default function App() {
   const [fbUser, setFbUser] = useState(null);
-  const [user, setUser] = useState(null); 
+  const [loggedUser, setLoggedUser] = useState(null); 
   const [loginView, setLoginView] = useState('main'); 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [securityAnswer, setSecurityAnswer] = useState('');
   const [loginError, setLoginError] = useState('');
   
-  const [students, setStudents] = useState([]);
-  const [exams, setExams] = useState([]);
-  const [scores, setScores] = useState([]);
-  const [logs, setLogs] = useState([]);
+  const [rawStudents, setRawStudents] = useState([]);
+  const [rawExams, setRawExams] = useState([]);
+  const [rawScores, setRawScores] = useState([]);
+  const [rawLogs, setRawLogs] = useState([]);
   
   const [activeTab, setActiveTab] = useState('dashboard'); 
   
@@ -95,6 +95,31 @@ export default function App() {
   const showMsg = (text, type = 'success') => setSystemMessage({ text, type });
   const askConfirm = (text, action) => setConfirmAction({ text, action });
 
+  // 根据当前登录的用户进行数据隔离过滤
+  const students = React.useMemo(() => {
+    if (!loggedUser) return [];
+    if (loggedUser.role === 'admin') return rawStudents;
+    return rawStudents.filter(s => s.teacherId === loggedUser.id);
+  }, [rawStudents, loggedUser]);
+
+  const exams = React.useMemo(() => {
+    if (!loggedUser) return [];
+    if (loggedUser.role === 'admin') return rawExams;
+    return rawExams.filter(e => e.teacherId === loggedUser.id);
+  }, [rawExams, loggedUser]);
+
+  const scores = React.useMemo(() => {
+    if (!loggedUser) return [];
+    if (loggedUser.role === 'admin') return rawScores;
+    return rawScores.filter(s => s.teacherId === loggedUser.id);
+  }, [rawScores, loggedUser]);
+
+  const logs = React.useMemo(() => {
+    if (!loggedUser) return [];
+    if (loggedUser.role === 'admin') return rawLogs;
+    return rawLogs.filter(l => l.teacherId === loggedUser.id);
+  }, [rawLogs, loggedUser]);
+
   useEffect(() => {
     if (!auth) return;
     const initAuth = async () => { 
@@ -113,17 +138,17 @@ export default function App() {
     if (!fbUser || !db) return;
     
     const unsubScores = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'scores'), 
-      (snap) => setScores(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))), 
+      (snap) => setRawScores(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))), 
       (err) => console.error("Scores error:", err)
     );
     
     const unsubStudents = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'students'), 
-      (snap) => setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))), 
+      (snap) => setRawStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))), 
       (err) => console.error("Students error:", err)
     );
     
     const unsubExams = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'exams'), 
-      (snap) => setExams(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))), 
+      (snap) => setRawExams(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))), 
       (err) => console.error("Exams error:", err)
     );
     
@@ -136,7 +161,7 @@ export default function App() {
       (snap) => {
         const logsData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         logsData.sort((a, b) => new Date(b.time) - new Date(a.time));
-        setLogs(logsData);
+        setRawLogs(logsData);
       }, 
       (err) => console.error("Logs error:", err)
     );
@@ -144,8 +169,14 @@ export default function App() {
     return () => { unsubScores(); unsubStudents(); unsubExams(); unsubTeachers(); unsubLogs(); };
   }, [fbUser]);
 
-  const addLog = async (action) => {
-    const logData = { time: new Date().toISOString(), user: user || 'System', action };
+  const addLog = async (action, customUser = null) => {
+    const actingUser = customUser || loggedUser;
+    const logData = { 
+      time: new Date().toISOString(), 
+      user: actingUser ? actingUser.name : 'System', 
+      teacherId: actingUser ? actingUser.id : null,
+      action 
+    };
     if (db && fbUser) {
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'logs', Date.now().toString()), logData);
     }
@@ -156,9 +187,10 @@ export default function App() {
     if (username.trim() && password.trim()) { 
       const teacher = teachers.find(t => t.username === username.trim() && t.password === password.trim());
       if (teacher) {
-        setUser(`教师: ${teacher.name}`); 
+        const newUser = { role: 'teacher', id: teacher.id, name: teacher.name, username: teacher.username };
+        setLoggedUser(newUser); 
         setIsAdmin(false);
-        addLog(`教师登录系统: ${teacher.name}`); 
+        addLog(`教师登录系统: ${teacher.name}`, newUser); 
         setLoginError(''); 
         setUsername(''); 
         setPassword('');
@@ -173,10 +205,11 @@ export default function App() {
   const handleAdminLogin = (e) => { 
     e.preventDefault(); 
     if (password === ADMIN_PASSWORD) { 
-      setUser('系统管理员'); 
+      const newUser = { role: 'admin', id: 'admin', name: '系统管理员' };
+      setLoggedUser(newUser); 
       setIsAdmin(true);
       setActiveTab('admin-panel');
-      addLog('管理员登录'); 
+      addLog('管理员登录', newUser); 
       setLoginError(''); 
       setPassword(''); 
       setLoginView('main'); 
@@ -199,7 +232,7 @@ export default function App() {
   
   const handleLogout = () => { 
     addLog('退出登录'); 
-    setUser(null); 
+    setLoggedUser(null); 
     setIsAdmin(false);
     setActiveTab('dashboard'); 
   };
@@ -255,7 +288,6 @@ export default function App() {
     });
   };
 
-
   const handleBulkImport = async () => {
     if(!bulkInput.trim()) return showMsg("请先在文本框中粘贴 Excel 数据！", 'error');
     const rows = bulkInput.trim().split('\n');
@@ -270,7 +302,8 @@ export default function App() {
           englishName: cols[1].trim(), 
           chineseName: cols[2].trim(), 
           gender: cols[3].trim(), 
-          class: cols[4].trim() 
+          class: cols[4].trim(),
+          teacherId: loggedUser.id
         };
         const id = Date.now().toString() + index; 
         if (batch) batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'students', id), { ...studentData, id });
@@ -293,7 +326,7 @@ export default function App() {
   const handleAddSingleStudent = async (e) => {
     e.preventDefault();
     const id = Date.now().toString();
-    if (db && fbUser) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', id), { ...newStudent, id });
+    if (db && fbUser) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', id), { ...newStudent, teacherId: loggedUser.id, id });
     showMsg(`已添加学生: ${newStudent.chineseName}`);
     setNewStudent({ studentId: '', englishName: '', chineseName: '', gender: '男', class: '' });
   };
@@ -309,7 +342,7 @@ export default function App() {
     e.preventDefault(); 
     if (!newExam.name.trim()) return;
     const id = Date.now().toString(); 
-    if (db && fbUser) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'exams', id), { ...newExam, id }); 
+    if (db && fbUser) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'exams', id), { ...newExam, teacherId: loggedUser.id, id }); 
     showMsg(`已添加考试项目: ${newExam.name}`);
     setNewExam({ name: '' }); 
   };
@@ -364,6 +397,7 @@ export default function App() {
           partB: Number(draft.partB || 0),
           partC: Number(draft.partC || 0),
           partD: Number(draft.partD || 0),
+          teacherId: loggedUser.id
         };
         if (batch) {
           batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'scores', draft.docId), scoreData);
@@ -536,7 +570,7 @@ export default function App() {
     }
   };
 
-  if (!user) {
+  if (!loggedUser) {
     return (
       <div className="min-h-screen bg-[#f4f1ea] flex items-center justify-center p-4 font-sans relative overflow-hidden">
         {/* Alerts for unauthenticated state */}
@@ -616,6 +650,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#f4f1ea] font-sans flex text-stone-800 relative">
       
+      {}
       {/* Custom System Messages (Toasts) */}
       {systemMessage && (
         <div className="fixed top-6 right-6 z-50 bg-white border-l-4 border-emerald-500 shadow-xl rounded-lg p-4 flex items-center gap-3 animate-fadeIn min-w-[250px]">
@@ -649,7 +684,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Global Style overrides to remove arrows in number inputs */}
+      {}
       <style>{`
         .hide-arrows::-webkit-outer-spin-button,
         .hide-arrows::-webkit-inner-spin-button {
@@ -668,7 +703,7 @@ export default function App() {
         }
       `}</style>
       
-      {/* Sidebar */}
+      {}
       <aside className="w-64 bg-white border-r border-stone-200 hidden md:flex flex-col shadow-sm z-10">
         <div className="h-16 flex items-center px-6 bg-emerald-700 text-white">
           <Leaf className="w-6 h-6 mr-2 text-emerald-200" />
@@ -687,7 +722,7 @@ export default function App() {
         <div className="p-4 border-t border-stone-200">
           <div className="mb-4 px-4 py-2 bg-stone-50 rounded-lg text-sm text-stone-600 font-medium break-all">
             <UserCircle className="w-4 h-4 inline mr-2 text-stone-400"/>
-            {user}
+            {loggedUser.name}
           </div>
           <button onClick={handleLogout} className="flex items-center w-full justify-center px-4 py-2.5 text-sm font-bold text-stone-600 hover:bg-red-50 hover:text-red-600 rounded-xl transition-colors">
             <LogOut className="w-4 h-4 mr-2" /> 退出登录
@@ -816,6 +851,7 @@ export default function App() {
               </div>
             )}
 
+            {}
             {activeTab === 'manage-data' && (
               <div className="space-y-6 animate-fadeIn">
                  <h2 className="text-2xl font-bold text-stone-800 border-b-2 border-emerald-500 pb-2 inline-block">第一步: 输入试卷与学生资料</h2>
@@ -964,6 +1000,7 @@ export default function App() {
               </div>
             )}
 
+            {}
             {activeTab === 'data-entry' && (
               <div className="space-y-6 animate-fadeIn">
                 <div className="flex justify-between items-end border-b-2 border-emerald-500 pb-2">
@@ -1101,6 +1138,7 @@ export default function App() {
               </div>
             )}
 
+            {}
             {activeTab === 'student-chart' && (
               <div className="space-y-6 animate-fadeIn">
                 <h2 className="text-2xl font-bold text-stone-800 border-b-2 border-emerald-500 pb-2 inline-block">学生个人成绩及多维度进展 (折线图)</h2>
@@ -1205,6 +1243,7 @@ export default function App() {
               </div>
             )}
 
+            {}
             {activeTab === 'class-chart' && (
               <div className="space-y-6 animate-fadeIn">
                  <div className="flex justify-between items-end border-b-2 border-emerald-500 pb-2">
@@ -1462,6 +1501,7 @@ export default function App() {
               </div>
             )}
 
+            {}
             {activeTab === 'dashboard' && (
               <div className="space-y-6 animate-fadeIn">
                 <h2 className="text-2xl font-bold text-stone-800 border-b-2 border-emerald-500 pb-2 inline-block">系统数据概览</h2>
