@@ -4,7 +4,7 @@ import {
 } from 'recharts';
 import { 
   UserCircle, Lock, LogOut, Plus, Trash2, Edit3, Save, X, Search, ChevronRight, 
-  BookOpen, Users, BarChart2, CheckCircle, AlertCircle, Leaf, Sprout, ClipboardList, Download, TrendingUp, Info, KeyRound, UserPlus
+  BookOpen, Users, BarChart2, CheckCircle, AlertCircle, Leaf, Sprout, ClipboardList, Download, TrendingUp, Info, KeyRound, UserPlus, Database
 } from 'lucide-react';
 
 // ==========================================
@@ -68,6 +68,7 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [newTeacher, setNewTeacher] = useState({ username: '', password: '', name: '' });
   const [resetTeacherPassword, setResetTeacherPassword] = useState({ id: '', newPassword: '' });
+  const [migrationTarget, setMigrationTarget] = useState('');
 
   // 基础数据添加表单
   const [studentInputMode, setStudentInputMode] = useState('batch'); 
@@ -284,6 +285,54 @@ export default function App() {
         showMsg(`已成功重置 ${teacherName} 的密码。`);
         addLog(`管理员重置了教师密码: ${teacherName}`);
         setResetTeacherPassword({ id: '', newPassword: '' });
+      }
+    });
+  };
+
+  const handleMigrateData = () => {
+    if (!migrationTarget) return showMsg('请先选择目标教师', 'error');
+    const targetTeacher = teachers.find(t => t.id === migrationTarget);
+    if (!targetTeacher) return;
+
+    askConfirm(`确定要将所有【未绑定】的旧数据全部分配给教师 ${targetTeacher.name} 吗？此操作不可逆。`, async () => {
+      let opCount = 0;
+      let totalCount = 0;
+      const chunks = [];
+      let currentBatch = (db && fbUser) ? writeBatch(db) : null;
+      if (!currentBatch) return;
+
+      const addToBatch = (collName, docId) => {
+        currentBatch.update(doc(db, 'artifacts', appId, 'public', 'data', collName, docId), { teacherId: migrationTarget });
+        opCount++;
+        totalCount++;
+        // Firestore batch limits to 500, we chunk at 450 to be safe
+        if (opCount >= 450) {
+          chunks.push(currentBatch.commit());
+          currentBatch = writeBatch(db);
+          opCount = 0;
+        }
+      };
+
+      const isUnassigned = (item) => !item.teacherId;
+
+      rawStudents.filter(isUnassigned).forEach(s => addToBatch('students', s.id));
+      rawExams.filter(isUnassigned).forEach(e => addToBatch('exams', e.id));
+      rawScores.filter(isUnassigned).forEach(s => addToBatch('scores', s.id));
+      rawLogs.filter(isUnassigned).forEach(l => addToBatch('logs', l.id));
+
+      if (totalCount === 0) {
+        return showMsg('没有发现需要分配的无主/旧数据。', 'error');
+      }
+
+      try {
+        if (opCount > 0) chunks.push(currentBatch.commit());
+        await Promise.all(chunks);
+        showMsg(`迁移成功！共将 ${totalCount} 条数据分配给了 ${targetTeacher.name}。`);
+        addLog(`管理员将旧数据迁移给了教师: ${targetTeacher.name}`);
+        setMigrationTarget('');
+      } catch (err) {
+        console.error(err);
+        showMsg('数据迁移失败，请重试', 'error');
       }
     });
   };
@@ -846,6 +895,32 @@ export default function App() {
                           </tbody>
                         </table>
                       </div>
+                    </div>
+                 </div>
+
+                 {/* 数据迁移工具 */}
+                 <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-6 mt-8">
+                    <h3 className="font-bold text-lg text-emerald-800 mb-2 flex items-center">
+                      <Database className="w-5 h-5 mr-2"/>旧数据迁移工具 (分配无主数据)
+                    </h3>
+                    <p className="text-sm text-stone-500 mb-4">
+                      系统升级多用户之前录入的旧数据（学生、考试、成绩）没有绑定具体的教师。您可以在此处将这些“无主”数据一键归入选定的教师账号下（例如分配给 suelane 老师）。
+                    </p>
+                    <div className="flex flex-col md:flex-row gap-4 md:w-2/3">
+                      <select 
+                        className="flex-1 px-4 py-2.5 border border-stone-300 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-stone-50"
+                        value={migrationTarget}
+                        onChange={e => setMigrationTarget(e.target.value)}
+                      >
+                        <option value="">请选择要接收旧数据的教师...</option>
+                        {teachers.map(t => <option key={t.id} value={t.id}>{t.name} ({t.username})</option>)}
+                      </select>
+                      <button 
+                        onClick={handleMigrateData}
+                        className="bg-emerald-600 text-white px-6 py-2.5 rounded-xl text-sm font-bold hover:bg-emerald-700 transition-colors shadow-sm whitespace-nowrap"
+                      >
+                        一键分配旧数据
+                      </button>
                     </div>
                  </div>
               </div>
