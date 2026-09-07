@@ -4,7 +4,7 @@ import {
 } from 'recharts';
 import { 
   UserCircle, Lock, LogOut, Plus, Trash2, Edit3, Save, X, Search, ChevronRight, 
-  BookOpen, Users, BarChart2, CheckCircle, AlertCircle, Leaf, Sprout, ClipboardList, Download, TrendingUp
+  BookOpen, Users, BarChart2, CheckCircle, AlertCircle, Leaf, Sprout, ClipboardList, Download, TrendingUp, Info, KeyRound, UserPlus
 } from 'lucide-react';
 
 // ==========================================
@@ -63,6 +63,12 @@ export default function App() {
   
   const [activeTab, setActiveTab] = useState('dashboard'); 
   
+  // 教师管理状态
+  const [teachers, setTeachers] = useState([]);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [newTeacher, setNewTeacher] = useState({ username: '', password: '', name: '' });
+  const [resetTeacherPassword, setResetTeacherPassword] = useState({ id: '', newPassword: '' });
+
   // 基础数据添加表单
   const [studentInputMode, setStudentInputMode] = useState('batch'); 
   const [bulkInput, setBulkInput] = useState('');
@@ -81,6 +87,13 @@ export default function App() {
   // 班级深度分析状态
   const [analysisClass, setAnalysisClass] = useState('');
   const [analysisExamId, setAnalysisExamId] = useState('');
+
+  // 自定义提示框状态 (替代 alert 和 confirm)
+  const [systemMessage, setSystemMessage] = useState(null); // { text, type: 'success' | 'error' }
+  const [confirmAction, setConfirmAction] = useState(null); // { text, action: function }
+
+  const showMsg = (text, type = 'success') => setSystemMessage({ text, type });
+  const askConfirm = (text, action) => setConfirmAction({ text, action });
 
   useEffect(() => {
     if (!auth) return;
@@ -114,6 +127,11 @@ export default function App() {
       (err) => console.error("Exams error:", err)
     );
     
+    const unsubTeachers = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'teachers'), 
+      (snap) => setTeachers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))), 
+      (err) => console.error("Teachers error:", err)
+    );
+
     const unsubLogs = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'logs'), 
       (snap) => {
         const logsData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -123,7 +141,7 @@ export default function App() {
       (err) => console.error("Logs error:", err)
     );
     
-    return () => { unsubScores(); unsubStudents(); unsubExams(); unsubLogs(); };
+    return () => { unsubScores(); unsubStudents(); unsubExams(); unsubTeachers(); unsubLogs(); };
   }, [fbUser]);
 
   const addLog = async (action) => {
@@ -135,20 +153,29 @@ export default function App() {
 
   const handleTeacherLogin = (e) => { 
     e.preventDefault(); 
-    if (username.trim()) { 
-      setUser(`教师: ${username}`); 
-      addLog('教师登录系统'); 
-      setLoginError(''); 
-      setUsername(''); 
+    if (username.trim() && password.trim()) { 
+      const teacher = teachers.find(t => t.username === username.trim() && t.password === password.trim());
+      if (teacher) {
+        setUser(`教师: ${teacher.name}`); 
+        setIsAdmin(false);
+        addLog(`教师登录系统: ${teacher.name}`); 
+        setLoginError(''); 
+        setUsername(''); 
+        setPassword('');
+      } else {
+        setLoginError('用户名或密码错误。'); 
+      }
     } else {
-      setLoginError('请输入您的姓名。'); 
+      setLoginError('请输入用户名和密码。'); 
     }
   };
   
   const handleAdminLogin = (e) => { 
     e.preventDefault(); 
     if (password === ADMIN_PASSWORD) { 
-      setUser('Admin'); 
+      setUser('系统管理员'); 
+      setIsAdmin(true);
+      setActiveTab('admin-panel');
       addLog('管理员登录'); 
       setLoginError(''); 
       setPassword(''); 
@@ -161,7 +188,7 @@ export default function App() {
   const handleSecurityCheck = (e) => { 
     e.preventDefault(); 
     if (securityAnswer.trim() === SECURITY_ANSWER) { 
-      alert(`验证成功！请直接登录。`); 
+      showMsg(`验证成功！请直接登录。`); 
       setLoginView('main'); 
       setSecurityAnswer(''); 
       setLoginError(''); 
@@ -173,11 +200,64 @@ export default function App() {
   const handleLogout = () => { 
     addLog('退出登录'); 
     setUser(null); 
+    setIsAdmin(false);
     setActiveTab('dashboard'); 
   };
 
+  const handleAddTeacher = async (e) => {
+    e.preventDefault();
+    if (!newTeacher.username.trim() || !newTeacher.password.trim() || !newTeacher.name.trim()) {
+      return showMsg('请填写完整的教师信息', 'error');
+    }
+    if (teachers.some(t => t.username === newTeacher.username.trim())) {
+      return showMsg('用户名已存在，请使用其他用户名', 'error');
+    }
+
+    const id = Date.now().toString();
+    if (db && fbUser) {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teachers', id), { 
+        ...newTeacher, 
+        id,
+        createdAt: new Date().toISOString()
+      });
+      showMsg(`已成功添加教师账户: ${newTeacher.name}`);
+      addLog(`管理员添加了教师: ${newTeacher.name}`);
+      setNewTeacher({ username: '', password: '', name: '' });
+    }
+  };
+
+  const handleDeleteTeacher = (id, name) => {
+    askConfirm(`确定要删除教师【${name}】的账户吗？此操作不可撤销。`, async () => {
+      if (db && fbUser) {
+        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teachers', id));
+        showMsg(`教师 ${name} 的账户已删除。`);
+        addLog(`管理员删除了教师: ${name}`);
+      }
+    });
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    if (!resetTeacherPassword.id || !resetTeacherPassword.newPassword.trim()) {
+      return showMsg('请选择教师并输入新密码', 'error');
+    }
+    
+    askConfirm('确定要重置该教师的密码吗？', async () => {
+      if (db && fbUser) {
+        const teacherRef = doc(db, 'artifacts', appId, 'public', 'data', 'teachers', resetTeacherPassword.id);
+        await setDoc(teacherRef, { password: resetTeacherPassword.newPassword.trim() }, { merge: true });
+        
+        const teacherName = teachers.find(t => t.id === resetTeacherPassword.id)?.name || '未知教师';
+        showMsg(`已成功重置 ${teacherName} 的密码。`);
+        addLog(`管理员重置了教师密码: ${teacherName}`);
+        setResetTeacherPassword({ id: '', newPassword: '' });
+      }
+    });
+  };
+
+
   const handleBulkImport = async () => {
-    if(!bulkInput.trim()) return alert("请先在文本框中粘贴 Excel 数据！");
+    if(!bulkInput.trim()) return showMsg("请先在文本框中粘贴 Excel 数据！", 'error');
     const rows = bulkInput.trim().split('\n');
     let addedCount = 0;
     const batch = (db && fbUser) ? writeBatch(db) : null;
@@ -198,14 +278,14 @@ export default function App() {
       }
     });
     
-    if (addedCount === 0) return alert("没有读取到有效数据，请检查格式。");
+    if (addedCount === 0) return showMsg("没有读取到有效数据，请检查格式。", 'error');
     try {
       if (batch) await batch.commit();
       addLog(`导入了 ${addedCount} 名学生`); 
       setBulkInput(''); 
-      alert(`成功导入 ${addedCount} 名学生！`);
+      showMsg(`成功导入 ${addedCount} 名学生！`);
     } catch(err) { 
-      alert("导入错误。"); 
+      showMsg("导入错误。", 'error'); 
       console.error(err);
     }
   };
@@ -214,13 +294,15 @@ export default function App() {
     e.preventDefault();
     const id = Date.now().toString();
     if (db && fbUser) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', id), { ...newStudent, id });
+    showMsg(`已添加学生: ${newStudent.chineseName}`);
     setNewStudent({ studentId: '', englishName: '', chineseName: '', gender: '男', class: '' });
   };
   
-  const handleDeleteStudent = async (id) => { 
-    if(window.confirm('确定删除此学生吗？')) {
+  const handleDeleteStudent = (id) => { 
+    askConfirm('确定删除此学生吗？', async () => {
       if (db && fbUser) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', id)); 
-    }
+      showMsg('学生已删除。');
+    });
   };
   
   const handleAddExam = async (e) => { 
@@ -228,13 +310,15 @@ export default function App() {
     if (!newExam.name.trim()) return;
     const id = Date.now().toString(); 
     if (db && fbUser) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'exams', id), { ...newExam, id }); 
+    showMsg(`已添加考试项目: ${newExam.name}`);
     setNewExam({ name: '' }); 
   };
   
-  const handleDeleteExam = async (id) => { 
-    if(window.confirm('确定删除吗？')) {
+  const handleDeleteExam = (id) => { 
+    askConfirm('确定删除该考试项目吗？', async () => {
       if (db && fbUser) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'exams', id)); 
-    }
+      showMsg('考试项目已删除。');
+    });
   };
 
   useEffect(() => {
@@ -291,10 +375,10 @@ export default function App() {
       try {
         await batch.commit();
         addLog(`批量保存了 ${entryClass} 的成绩`);
-        alert(`成功保存了 ${savedCount} 名学生的成绩！`);
+        showMsg(`成功保存了 ${savedCount} 名学生的成绩！`);
       } catch (err) {
         console.error("Save scores error:", err);
-        alert("保存成绩失败，请重试。");
+        showMsg("保存成绩失败，请重试。", 'error');
       }
     }
   };
@@ -337,7 +421,7 @@ export default function App() {
   };
 
   const handleExportAnalysisExcel = () => {
-    if (!analysisClass || !analysisExamId) return alert('请先选择班级和考试');
+    if (!analysisClass || !analysisExamId) return showMsg('请先选择班级和考试', 'error');
 
     const examName = exams.find(e => e.id === analysisExamId)?.name || '未命名考试';
     const classStudents = students.filter(s => s.class === analysisClass);
@@ -349,7 +433,7 @@ export default function App() {
       return { student, score, calc, hasTaken };
     }).filter(item => item.hasTaken);
 
-    let csvContent = '\uFEFF'; // BOM for UTF-8
+    let csvContent = '\uFEFF'; 
     csvContent += `${analysisClass} 班级 - ${examName} 深度分析报告\n\n`;
 
     // 1. 各部分成绩分布
@@ -393,10 +477,11 @@ export default function App() {
     link.click();
     document.body.removeChild(link);
     addLog(`导出了 ${analysisClass} 的深度分析报告`);
+    showMsg('深度分析报告导出成功。');
   };
 
   const handleExportExcel = () => {
-    if (!entryClass || !entryExamId) return alert('请先选择班级和考试');
+    if (!entryClass || !entryExamId) return showMsg('请先选择班级和考试', 'error');
 
     const classStudents = students.filter(s => s.class === entryClass).sort((a, b) => (a.englishName || '').localeCompare(b.englishName || ''));
     const examName = exams.find(e => e.id === entryExamId)?.name || '未命名考试';
@@ -432,6 +517,7 @@ export default function App() {
     link.click();
     document.body.removeChild(link);
     addLog(`导出了 ${entryClass} 的Excel成绩`);
+    showMsg('成绩报表导出成功。');
   };
 
   const handleKeyDown = (e) => {
@@ -453,6 +539,15 @@ export default function App() {
   if (!user) {
     return (
       <div className="min-h-screen bg-[#f4f1ea] flex items-center justify-center p-4 font-sans relative overflow-hidden">
+        {/* Alerts for unauthenticated state */}
+        {systemMessage && (
+          <div className="fixed top-6 right-6 z-50 bg-white border-l-4 border-emerald-500 shadow-xl rounded-lg p-4 flex items-center gap-3 animate-fadeIn">
+            {systemMessage.type === 'error' ? <AlertCircle className="text-red-500 w-5 h-5" /> : <CheckCircle className="text-emerald-500 w-5 h-5" />}
+            <span className="text-sm font-medium text-stone-700">{systemMessage.text}</span>
+            <button onClick={() => setSystemMessage(null)} className="text-stone-400 hover:text-stone-600"><X className="w-4 h-4"/></button>
+          </div>
+        )}
+        
         <Leaf className="absolute top-10 left-10 w-32 h-32 text-emerald-600/10 -rotate-45" />
         <Leaf className="absolute bottom-10 right-10 w-48 h-48 text-emerald-600/10 rotate-45" />
         <div className="max-w-md w-full bg-white rounded-3xl shadow-xl overflow-hidden border border-stone-200 relative z-10">
@@ -473,9 +568,16 @@ export default function App() {
                 <input 
                   type="text" 
                   className="block w-full px-4 py-3 bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors" 
-                  placeholder="教师姓名" 
+                  placeholder="用户名 (如: ali_teacher)" 
                   value={username} 
                   onChange={(e) => setUsername(e.target.value)} 
+                />
+                <input 
+                  type="password" 
+                  className="block w-full px-4 py-3 bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors" 
+                  placeholder="登录密码" 
+                  value={password} 
+                  onChange={(e) => setPassword(e.target.value)} 
                 />
                 <button type="submit" className="w-full py-3 px-4 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors shadow-sm">
                   教师登录
@@ -512,7 +614,41 @@ export default function App() {
   const classes = [...new Set(students.map(s => s.class))];
 
   return (
-    <div className="min-h-screen bg-[#f4f1ea] font-sans flex text-stone-800">
+    <div className="min-h-screen bg-[#f4f1ea] font-sans flex text-stone-800 relative">
+      
+      {/* Custom System Messages (Toasts) */}
+      {systemMessage && (
+        <div className="fixed top-6 right-6 z-50 bg-white border-l-4 border-emerald-500 shadow-xl rounded-lg p-4 flex items-center gap-3 animate-fadeIn min-w-[250px]">
+          {systemMessage.type === 'error' ? <AlertCircle className="text-red-500 w-5 h-5" /> : <CheckCircle className="text-emerald-500 w-5 h-5" />}
+          <span className="text-sm font-medium text-stone-700 flex-1">{systemMessage.text}</span>
+          <button onClick={() => setSystemMessage(null)} className="text-stone-400 hover:text-stone-600"><X className="w-4 h-4"/></button>
+        </div>
+      )}
+
+      {/* Custom Confirm Dialog */}
+      {confirmAction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full mx-4 animate-fadeIn">
+            <div className="flex items-center gap-3 mb-4 text-stone-800">
+              <Info className="w-6 h-6 text-emerald-600" />
+              <h3 className="font-bold text-lg">系统确认</h3>
+            </div>
+            <p className="text-stone-600 mb-6">{confirmAction.text}</p>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setConfirmAction(null)} className="px-4 py-2 rounded-xl text-sm font-bold text-stone-600 bg-stone-100 hover:bg-stone-200 transition-colors">
+                取消
+              </button>
+              <button 
+                onClick={() => { confirmAction.action(); setConfirmAction(null); }} 
+                className="px-4 py-2 rounded-xl text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors"
+              >
+                确定执行
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Global Style overrides to remove arrows in number inputs */}
       <style>{`
         .hide-arrows::-webkit-outer-spin-button,
@@ -522,6 +658,13 @@ export default function App() {
         }
         .hide-arrows {
           -moz-appearance: textfield;
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(-10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fadeIn {
+          animation: fadeIn 0.3s ease-out forwards;
         }
       `}</style>
       
@@ -533,6 +676,9 @@ export default function App() {
         </div>
         <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-2">
           <NavItem active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<BarChart2 className="w-5 h-5" />} label="系统概览" />
+          {isAdmin && (
+            <NavItem active={activeTab === 'admin-panel'} onClick={() => setActiveTab('admin-panel')} icon={<Lock className="w-5 h-5 text-amber-600" />} label="管理员控制台" />
+          )}
           <NavItem active={activeTab === 'manage-data'} onClick={() => setActiveTab('manage-data')} icon={<BookOpen className="w-5 h-5" />} label="1. 基础资料管理" />
           <NavItem active={activeTab === 'data-entry'} onClick={() => setActiveTab('data-entry')} icon={<Edit3 className="w-5 h-5" />} label="2. 成绩录入表格" />
           <NavItem active={activeTab === 'student-chart'} onClick={() => setActiveTab('student-chart')} icon={<TrendingUp className="w-5 h-5" />} label="3. 个人进展(Line)" />
@@ -557,6 +703,119 @@ export default function App() {
           <div className="max-w-6xl mx-auto space-y-6">
 
             {}
+            {activeTab === 'admin-panel' && isAdmin && (
+              <div className="space-y-6 animate-fadeIn">
+                 <h2 className="text-2xl font-bold text-stone-800 border-b-2 border-amber-500 pb-2 inline-block">系统管理员控制台</h2>
+                 
+                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    {/* 添加新教师 */}
+                    <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-6 flex flex-col h-full">
+                      <h3 className="font-bold text-lg text-emerald-800 mb-4 flex items-center">
+                        <UserPlus className="w-5 h-5 mr-2"/>创建教师账户
+                      </h3>
+                      <form onSubmit={handleAddTeacher} className="space-y-4">
+                        <div>
+                          <label className="block text-xs font-bold text-stone-500 uppercase mb-1">登录用户名 (需唯一)</label>
+                          <input 
+                            required 
+                            type="text" 
+                            placeholder="如: lim_laoshi" 
+                            className="w-full px-4 py-2 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-stone-50" 
+                            value={newTeacher.username} 
+                            onChange={e => setNewTeacher({...newTeacher, username: e.target.value})} 
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-stone-500 uppercase mb-1">教师姓名 (显示名称)</label>
+                          <input 
+                            required 
+                            type="text" 
+                            placeholder="如: 林老师" 
+                            className="w-full px-4 py-2 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-stone-50" 
+                            value={newTeacher.name} 
+                            onChange={e => setNewTeacher({...newTeacher, name: e.target.value})} 
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-stone-500 uppercase mb-1">初始登录密码</label>
+                          <input 
+                            required 
+                            type="text" 
+                            placeholder="设置密码" 
+                            className="w-full px-4 py-2 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-stone-50" 
+                            value={newTeacher.password} 
+                            onChange={e => setNewTeacher({...newTeacher, password: e.target.value})} 
+                          />
+                        </div>
+                        <button type="submit" className="w-full bg-emerald-600 text-white px-4 py-3 rounded-xl text-sm font-bold hover:bg-emerald-700 transition-colors shadow-sm mt-2">
+                          添加新教师
+                        </button>
+                      </form>
+                    </div>
+
+                    {/* 管理教师列表 & 重置密码 */}
+                    <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-6 flex flex-col h-full">
+                      <h3 className="font-bold text-lg text-amber-800 mb-4 flex items-center">
+                        <KeyRound className="w-5 h-5 mr-2"/>教师账户管理 & 密码重置
+                      </h3>
+                      
+                      <form onSubmit={handleResetPassword} className="mb-6 p-4 bg-amber-50 rounded-xl border border-amber-100 flex flex-col gap-3">
+                        <div className="text-sm font-bold text-amber-800 mb-1">强制重置密码</div>
+                        <div className="flex gap-2">
+                          <select 
+                            className="flex-1 px-3 py-2 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:outline-none bg-white"
+                            value={resetTeacherPassword.id}
+                            onChange={e => setResetTeacherPassword({...resetTeacherPassword, id: e.target.value})}
+                          >
+                            <option value="">选择需要重置的教师...</option>
+                            {teachers.map(t => <option key={t.id} value={t.id}>{t.name} ({t.username})</option>)}
+                          </select>
+                          <input 
+                            type="text" 
+                            placeholder="新密码"
+                            className="w-1/3 px-3 py-2 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:outline-none bg-white"
+                            value={resetTeacherPassword.newPassword}
+                            onChange={e => setResetTeacherPassword({...resetTeacherPassword, newPassword: e.target.value})}
+                          />
+                        </div>
+                        <button type="submit" className="self-end bg-amber-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-amber-700 transition-colors shadow-sm">
+                          执行重置
+                        </button>
+                      </form>
+
+                      <div className="flex-1 overflow-y-auto border border-stone-100 rounded-xl max-h-[300px]">
+                        <table className="w-full text-xs text-left">
+                          <thead className="bg-stone-100 sticky top-0 text-stone-600 shadow-sm z-10">
+                            <tr>
+                              <th className="px-4 py-2.5 font-bold">教师姓名</th>
+                              <th className="px-4 py-2.5 font-bold">登录账号</th>
+                              <th className="px-4 py-2.5 font-bold text-right">操作</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-stone-100">
+                            {teachers.length === 0 ? (
+                               <tr><td colSpan="3" className="px-4 py-8 text-center text-stone-400">暂无教师账户</td></tr>
+                            ) : (
+                              teachers.map(t => (
+                                <tr key={t.id} className="hover:bg-stone-50 transition-colors">
+                                  <td className="px-4 py-2.5 font-bold text-stone-700">{t.name}</td>
+                                  <td className="px-4 py-2.5 font-mono text-stone-500">{t.username}</td>
+                                  <td className="px-4 py-2.5 text-right">
+                                    <button onClick={() => handleDeleteTeacher(t.id, t.name)} className="text-red-500 hover:bg-red-50 p-1.5 rounded transition-colors" title="删除账户">
+                                      <Trash2 className="w-4 h-4 inline"/>
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                 </div>
+              </div>
+            )}
+
             {activeTab === 'manage-data' && (
               <div className="space-y-6 animate-fadeIn">
                  <h2 className="text-2xl font-bold text-stone-800 border-b-2 border-emerald-500 pb-2 inline-block">第一步: 输入试卷与学生资料</h2>
@@ -705,7 +964,6 @@ export default function App() {
               </div>
             )}
 
-            {}
             {activeTab === 'data-entry' && (
               <div className="space-y-6 animate-fadeIn">
                 <div className="flex justify-between items-end border-b-2 border-emerald-500 pb-2">
@@ -843,7 +1101,6 @@ export default function App() {
               </div>
             )}
 
-            {}
             {activeTab === 'student-chart' && (
               <div className="space-y-6 animate-fadeIn">
                 <h2 className="text-2xl font-bold text-stone-800 border-b-2 border-emerald-500 pb-2 inline-block">学生个人成绩及多维度进展 (折线图)</h2>
@@ -948,7 +1205,6 @@ export default function App() {
               </div>
             )}
 
-            {}
             {activeTab === 'class-chart' && (
               <div className="space-y-6 animate-fadeIn">
                  <div className="flex justify-between items-end border-b-2 border-emerald-500 pb-2">
@@ -1206,7 +1462,6 @@ export default function App() {
               </div>
             )}
 
-            {}
             {activeTab === 'dashboard' && (
               <div className="space-y-6 animate-fadeIn">
                 <h2 className="text-2xl font-bold text-stone-800 border-b-2 border-emerald-500 pb-2 inline-block">系统数据概览</h2>
